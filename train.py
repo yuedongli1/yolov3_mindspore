@@ -161,6 +161,8 @@ def train(hyp, opt):
     data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=300)
     accumulate_grads = None
     accumulate_finite = Tensor(True, ms.bool_)
+    model.set_train(True)
+    optimizer.set_train(True)
     for i, data in enumerate(data_loader):
         s_time = time.time()
         if i < warmup_steps:
