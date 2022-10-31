@@ -35,6 +35,7 @@ echo $HYP_PATH
 
 
 export DEVICE_NUM=4
+export CUDA_VISIBLE_DEVICE='0,1,2,3'
 rm -rf ./train_parallel
 mkdir ./train_parallel
 cp ../*.py ./train_parallel
