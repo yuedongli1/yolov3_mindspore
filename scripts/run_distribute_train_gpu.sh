@@ -42,6 +42,7 @@ cp ../*.py ./train_parallel
 cp -r ../config ./train_parallel
 cp -r ../network ./train_parallel
 cp -r ../utils ./train_parallel
+cp -r ../yolov3_backbone.ckpt ./train_parallel
 cd ./train_parallel || exit
 env > env.log
 mpirun --allow-run-as-root -n ${DEVICE_NUM} --output-filename log_output --merge-stderr-to-stdout \
