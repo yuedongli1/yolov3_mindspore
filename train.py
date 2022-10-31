@@ -73,9 +73,7 @@ def train(hyp, opt):
     gs = max(int(model.stride.max()), 32)  # grid size (max stride)
     nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
-    train_path = "D:/yolov3_fromv7/datasets/coco128"
-    train_path = "D:/yolov3_fromv7/datasets/coco/train2017.txt"
-    # train_path = data_dict['train']
+    train_path = data_dict['train']
     dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, batch_size, gs, opt,
                                                             hyp=hyp, augment=True, cache=opt.cache_images,
                                                             rect=opt.rect, rank_size=opt.rank_size, rank=opt.rank,
