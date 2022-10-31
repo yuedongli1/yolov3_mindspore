@@ -230,7 +230,6 @@ class ComputeLoss(nn.Cell):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
         targets = targets.view(-1, 6)
         mask_t = targets[:, 1] >= 0
-        real_targets = targets.masked_select(mask_t[..., None]).view(-1, 6)
         na, nt = self.na, targets.shape[0]  # number of anchors, targets
         tcls, tbox, indices, anch, tmasks = (), (), (), (), ()
         gain = ops.ones(7, ms.int32) # normalized to gridspace gain
@@ -254,7 +253,6 @@ class ComputeLoss(nn.Cell):
 
             # t = t[j]  # filter
             mask_m_t = ops.logical_and(j, mask_t[None, :]).view(-1)
-            real_targets2 = targets.view(-1, 7).masked_select(mask_m_t[..., None]).view(-1, 7)
             t = t.view(-1, 7)
 
             # Offsets
@@ -270,7 +268,6 @@ class ComputeLoss(nn.Cell):
 
             mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
             t = t.view(-1, 7)
-            real_targets3 = t.masked_select(Tensor(mask_m_t[..., None], ms.bool_)).view(-1, 7)
 
             # t = t.repeat((5, 1, 1))[j]
 

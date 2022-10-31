@@ -127,7 +127,7 @@ def train(hyp, opt):
     else:
         grad_reducer = ops.functional.identity
     loss_scaler = DynamicLossScaler(2**10, 2, 1000)
-    # @ms.ms_function
+    @ms.ms_function
     def forward_func(x, label, sizes=None):
         if sizes is not None:
             x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
@@ -138,7 +138,7 @@ def train(hyp, opt):
     grad_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
 
     all_finite_fn = all_finite if context.get_context("device_target") != "CPU" else all_finite_cpu
-    # @ms.ms_function
+    @ms.ms_function
     def train_step(x, label, sizes=None, optimizer_update=True):
 
         (loss, loss_items), grads = grad_fn(x, label, sizes)
@@ -229,7 +229,7 @@ if __name__ == '__main__':
     opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
 
     context.set_context(mode=context.PYNATIVE_MODE, pynative_synchronize=True, device_target=opt.device_target)
-    # context.set_context(mode=context.GRAPH_MODE, pynative_synchronize=True, device_target=opt.device_target)
+    context.set_context(mode=context.GRAPH_MODE, pynative_synchronize=True, device_target=opt.device_target)
     context.reset_auto_parallel_context()
     # Distribute Train
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE

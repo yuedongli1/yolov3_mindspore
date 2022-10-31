@@ -134,7 +134,7 @@ class Detect(nn.Cell):
                                         has_bias=True, weight_init=HeUniform(negative_slope=5), bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
         # self.inplace = inplace
 
-    # @ms.ms_function
+    @ms.ms_function
     def construct(self, x):
         # x = x.copy()  # for profiling
         z = ()  # inference output
@@ -146,23 +146,23 @@ class Detect(nn.Cell):
             out = ops.Transpose()(out.view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))
             outs += (out,)
 
-            if not self.training:  # inference
-                grid_i_shape = self.grid[i].param.shape
-                x_i_shape = x[i].shape
-                if len(grid_i_shape) < 4 or grid_i_shape[2] != x_i_shape[2] or grid_i_shape[3] != x_i_shape[3]:
-                # if self.grid[i].shape[2:4] != x[i].shape[2:4]:
-                #     self.grid_cell[i].param = self._make_grid(nx, ny)
-                    tmp = self._make_grid(nx, ny, i)
-                    self.grid[i].param = ops.assign(self.grid[i].param, tmp[0])
-                    self.anchor_grid[i].param = ops.assign(self.anchor_grid[i].param, tmp[1])
+            # if not self.training:  # inference
+            #     grid_i_shape = self.grid[i].param.shape
+            #     x_i_shape = x[i].shape
+            #     if len(grid_i_shape) < 4 or grid_i_shape[2] != x_i_shape[2] or grid_i_shape[3] != x_i_shape[3]:
+            #     # if self.grid[i].shape[2:4] != x[i].shape[2:4]:
+            #     #     self.grid_cell[i].param = self._make_grid(nx, ny)
+            #         tmp = self._make_grid(nx, ny, i)
+            #         self.grid[i].param = ops.assign(self.grid[i].param, tmp[0])
+            #         self.anchor_grid[i].param = ops.assign(self.anchor_grid[i].param, tmp[1])
+            #
+            #     y = ops.Sigmoid()(x[i])
+            #     y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i].param) * self.stride[i]  # xy
+            #     y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].param  # wh
+            #     z += (y.view(bs, -1, self.no),)
 
-                y = ops.Sigmoid()(x[i])
-                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i].param) * self.stride[i]  # xy
-                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].param  # wh
-                z += (y.view(bs, -1, self.no),)
-
-        # return outs
-        return outs if self.training else (ops.concat(z, 1), outs)
+        return outs
+        # return outs if self.training else (ops.concat(z, 1), outs)
 
     def _make_grid(self, nx=20, ny=20, i=0):
         yv, xv = ops.meshgrid((mnp.arange(ny), mnp.arange(nx)))
