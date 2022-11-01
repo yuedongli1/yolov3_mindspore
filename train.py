@@ -70,7 +70,7 @@ def train(hyp, opt):
             p.requires_grad = False
 
     # Image sizes
-    gs = max(int(model.stride.max()), 32)  # grid size (max stride)
+    gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
     nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
     train_path = data_dict['train']
@@ -133,26 +133,29 @@ def train(hyp, opt):
             x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
         pred = model(x)
         loss, loss_items = compute_loss(pred, label)
-        return loss_scaler.scale(loss), loss_items
+        return loss, ops.stop_gradient(loss_items)
 
-    grad_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
+    grad_fn = ops.GradOperation(get_by_list=True, sens_param=True)(forward_func, optimizer.parameters)
+    sens_value = 1.0
+    # grad_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
 
     all_finite_fn = all_finite if context.get_context("device_target") != "CPU" else all_finite_cpu
     @ms.ms_function
     def train_step(x, label, sizes=None, optimizer_update=True):
 
-        (loss, loss_items), grads = grad_fn(x, label, sizes)
+        loss, loss_items = forward_func(x, label, sizes)
+        sens1, sens2 = ops.fill(loss.dtype, loss.shape, sens_value), \
+                       ops.fill(loss_items.dtype, loss_items.shape, sens_value)
+        grads = grad_fn(x, label, sizes, (sens1, sens2))
         grads = grad_reducer(grads)
         grads_finite = all_finite_fn(grads)
-        unscaled_grads = loss_scaler.unscale(grads)
 
-        if grads_finite:
-            if optimizer_update:
-                loss = ops.depend(loss, optimizer(unscaled_grads))
-                _ = loss_scaler.adjust(grads_finite)
-        else:
-            print("overflow, loss scale adjust to ", loss_scaler.scale_value)
-        return loss, loss_items, unscaled_grads, grads_finite
+        if optimizer_update:
+            if grads_finite:
+                loss = ops.depend(loss, optimizer(grads))
+            else:
+                print("overflow, drop the step")
+        return loss, loss_items, grads, grads_finite
 
 
     # Start training
