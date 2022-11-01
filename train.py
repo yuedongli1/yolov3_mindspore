@@ -15,7 +15,7 @@ from mindspore.communication.management import init, get_rank, get_group_size
 from network.yolo import Model
 from network.common import ModelEMA
 from network.loss import ComputeLoss
-from config.args import get_args
+from config.args import get_args_train
 from utils.optimizer import get_group_param_yolov3, get_lr_yolov3
 from utils.dataset import create_dataloader
 from utils.general import increment_path, colorstr, labels_to_class_weights, check_file, check_img_size, all_finite_cpu
@@ -220,7 +220,7 @@ def train(hyp, opt):
 
 
 if __name__ == '__main__':
-    opt = get_args()
+    opt = get_args_train()
     # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
     assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'

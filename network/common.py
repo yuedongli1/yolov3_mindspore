@@ -122,12 +122,9 @@ class Detect(nn.Cell):
         self.no = nc + 5  # number of outputs per anchor
         self.nl = len(anchors)  # number of detection layers
         self.na = len(anchors[0]) // 2  # number of anchors
-        # self.grid = [Tensor(np.zeros(1), ms.float32)] * self.nl
-        self.grid = nn.CellList([BaseCell(ms.Parameter(Tensor(np.zeros(1), ms.float32), requires_grad=False)) for _ in range(self.nl)])
-        # self.anchor_grid = [Tensor(np.zeros(1), ms.float32)] * self.nl
-        self.anchor_grid = nn.CellList(
-            [BaseCell(ms.Parameter(Tensor(np.zeros(1), ms.float32), requires_grad=False)) for _ in range(self.nl)])
-        self.anchors = Tensor(anchors, ms.float32).view(self.nl, -1, 2)
+        self.anchor_grid = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, 1, -1, 1, 1, 2),
+                                        requires_grad=False)  # shape(nl,1,na,1,1,2)
+        self.anchors = ms.Parameter(Tensor(anchors, ms.float32).view(self.nl, -1, 2), requires_grad=False)
 
         self.m = nn.CellList([nn.Conv2d(x, self.no * self.na, 1,
                                         pad_mode="valid",
@@ -146,29 +143,21 @@ class Detect(nn.Cell):
             out = ops.Transpose()(out.view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))
             outs += (out,)
 
-            # if not self.training:  # inference
-            #     grid_i_shape = self.grid[i].param.shape
-            #     x_i_shape = x[i].shape
-            #     if len(grid_i_shape) < 4 or grid_i_shape[2] != x_i_shape[2] or grid_i_shape[3] != x_i_shape[3]:
-            #     # if self.grid[i].shape[2:4] != x[i].shape[2:4]:
-            #     #     self.grid_cell[i].param = self._make_grid(nx, ny)
-            #         tmp = self._make_grid(nx, ny, i)
-            #         self.grid[i].param = ops.assign(self.grid[i].param, tmp[0])
-            #         self.anchor_grid[i].param = ops.assign(self.anchor_grid[i].param, tmp[1])
-            #
-            #     y = ops.Sigmoid()(x[i])
-            #     y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + self.grid[i].param) * self.stride[i]  # xy
-            #     y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i].param  # wh
-            #     z += (y.view(bs, -1, self.no),)
+            if not self.training:  # inference
+                grid_tensor = self._make_grid(nx, ny, out.dtype)
 
-        return outs
-        # return outs if self.training else (ops.concat(z, 1), outs)
+                y = ops.Sigmoid()(out)
+                y[..., 0:2] = (y[..., 0:2] * 2. - 0.5 + grid_tensor) * self.stride[i]  # xy
+                y[..., 2:4] = (y[..., 2:4] * 2) ** 2 * self.anchor_grid[i]  # wh
+                z += (y.view(bs, -1, self.no),)
 
-    def _make_grid(self, nx=20, ny=20, i=0):
+        # return outs
+        return outs if self.training else (ops.concat(z, 1), outs)
+
+    @staticmethod
+    def _make_grid(nx=20, ny=20, dtype=ms.float32):
         yv, xv = ops.meshgrid((mnp.arange(ny), mnp.arange(nx)))
-        grid = ops.cast(ops.broadcast_to(ops.stack((xv, yv), 2), (1, self.na, ny, nx, 2)), ms.float32)
-        anchor_grid = ops.cast(ops.broadcast_to((self.anchors[i] * self.stride[i]).view((1, self.na, 1, 1, 2)), (1, self.na, ny, nx, 2)), ms.float32)
-        return grid, anchor_grid
+        return ops.cast(ops.stack((xv, yv), 2).view((1, 1, ny, nx, 2)), dtype)
 
 
 def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
