@@ -57,13 +57,14 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 
     # Settings
     min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
+    max_nms = 30000
     time_limit = 10.0  # seconds to quit after
     redundant = True  # require redundant detections
     multi_label &= nc > 1  # multiple labels per box (adds 0.5ms/img)
     merge = False  # use merge-NMS
 
     t = time.time()
-    output = []
+    output = [np.zeros((0, 6))] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
@@ -83,7 +84,10 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             continue
 
         # Compute conf
-        x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
+        if nc == 1:
+            x[:, 5:] = x[:, 4:5]
+        else:
+            x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
 
         # Box (center x, center y, width, height) to (x1, y1, x2, y2)
         box = xywh2xyxy(x[:, :4])
@@ -91,7 +95,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
             i, j = (x[:, 5:] > conf_thres).nonzero()
-            x = np.concatenate((box[i], x[i, j + 5, None], j[:, None]), 1)
+            x = np.concatenate((box[i], x[i, j + 5, None], j[:, None].astype(np.float)), 1)
         else:  # best class only
             conf, j = x[:, 5:].max(1, keepdim=True)
             x = np.concatenate((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
@@ -108,6 +112,8 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         n = x.shape[0]  # number of boxes
         if not n:  # no boxes
             continue
+        elif n > max_nms:
+            x = x[x[:, 4].argsort()[-max_nms:]]
 
         # Batched NMS
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
@@ -119,7 +125,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
         y2 = boxes[:, 3]
         scores = x[:, 4]
 
-        areas = (x2 - x1 + 1) * (y2 - y1 + 1)
+        areas = (x2 - x1) * (y2 - y1)
         order = scores.argsort()[::-1]
 
         reserved_boxes = []
@@ -131,10 +137,10 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             min_x2 = np.minimum(x2[i], x2[order[1:]])
             min_y2 = np.minimum(y2[i], y2[order[1:]])
 
-            intersect_w = np.maximum(0.0, min_x2 - max_x1 + 1)
-            intersect_h = np.maximum(0.0, min_y2 - max_y1 + 1)
+            intersect_w = np.maximum(0.0, min_x2 - max_x1)
+            intersect_h = np.maximum(0.0, min_y2 - max_y1)
             intersect_area = intersect_w * intersect_h
-            ovr = intersect_area / (areas[i] + areas[order[1:]] - intersect_area)
+            ovr = intersect_area / (areas[i] + areas[order[1:]] - intersect_area + 1e-6)
 
             indexes = np.where(ovr <= iou_thres)[0]
             order = order[indexes + 1]
@@ -145,14 +151,14 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             # update boxes as boxes(i,4) = weights(i,n) * boxes(n,4)
             iou = box_iou(boxes[reserved_boxes], boxes) > iou_thres  # iou matrix
             weights = iou * scores[None]  # box weights
-            x[reserved_boxes, :4] = np.matmul(weights, x[:, :4]).float() / weights.sum(1, keepdim=True)  # merged boxes
+            x[reserved_boxes, :4] = np.matmul(weights, x[:, :4]) / weights.sum(1, keepdim=True)  # merged boxes
             if redundant:
                 reserved_boxes = reserved_boxes[iou.sum(1) > 1]  # require redundancy
 
-        output.append(x[reserved_boxes])
+        output[xi] = x[reserved_boxes]
         if (time.time() - t) > time_limit:
             print(f'WARNING: NMS time limit {time_limit}s exceeded')
-            break  # time limit exceeded
+            # break  # time limit exceeded
 
     return output
 
@@ -285,7 +291,7 @@ if __name__ == '__main__':
     lb = []
     val_path = "D:/yolov3_fromv7/datasets/coco128"
     imgsz, _ = [640, 640]
-    batch_size = 16
+    batch_size = 1
     gs = 32
     cfg = "./config/network/yolov3.yaml"
     model = Model(cfg, ch=3, nc=80, anchors=None)
@@ -301,6 +307,7 @@ if __name__ == '__main__':
     jdict, stats, ap, ap_class = [], [], [], []
     model.set_train(False)
     for batch_i, data in enumerate(data_loader):
+        print(batch_i)
         imgs = data['img']
         imgs = Tensor(imgs, ms.float32)
         out, train_out = model(imgs)

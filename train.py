@@ -232,7 +232,7 @@ if __name__ == '__main__':
     opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
 
     context.set_context(mode=context.PYNATIVE_MODE, pynative_synchronize=True, device_target=opt.device_target)
-    context.set_context(mode=context.GRAPH_MODE, pynative_synchronize=True, device_target=opt.device_target)
+    context.set_context(mode=context.GRAPH_MODE, device_target=opt.device_target)
     context.reset_auto_parallel_context()
     # Distribute Train
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
