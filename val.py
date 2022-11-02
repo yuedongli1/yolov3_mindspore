@@ -273,6 +273,32 @@ def compute_ap(recall, precision):
     return ap, mpre, mrec
 
 
+def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
+    # Rescale coords (xyxy) from img1_shape to img0_shape
+    if ratio_pad is None:  # calculate from img0_shape
+        gain = min(img1_shape[0] / img0_shape[0], img1_shape[1] / img0_shape[1])  # gain  = old / new
+        pad = (img1_shape[1] - img0_shape[1] * gain) / 2, (img1_shape[0] - img0_shape[0] * gain) / 2  # wh padding
+    else:
+        # assert ratio_pad[0, 0] == ratio_pad[0, 1]
+        gain = ratio_pad[0, 0]
+        pad = ratio_pad[1, :]
+
+    coords[:, [0, 2]] -= pad[0]  # x padding
+    coords[:, [1, 3]] -= pad[1]  # y padding
+    coords[:, :4] /= gain
+    coords = clip_coords(coords, img0_shape)
+    return coords
+
+
+def clip_coords(boxes, img_shape):
+    # Clip bounding xyxy bounding boxes to image shape (height, width)
+    boxes[:, 0].clip(0, img_shape[1])  # x1
+    boxes[:, 1].clip(0, img_shape[0])  # y1
+    boxes[:, 2].clip(0, img_shape[1])  # x2
+    boxes[:, 3].clip(0, img_shape[0])  # y2
+    return boxes
+
+
 if __name__ == '__main__':
     from config.args import get_args_val
     from utils.general import check_file, colorstr
@@ -306,29 +332,70 @@ if __name__ == '__main__':
     data_loader = ds.create_dict_iterator(output_numpy=True, num_epochs=1)
     jdict, stats, ap, ap_class = [], [], [], []
     model.set_train(False)
+    iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
+    niou = iouv.shape[0]
     for batch_i, data in enumerate(data_loader):
         print(batch_i)
-        imgs = data['img']
-        imgs = Tensor(imgs, ms.float32)
-        out, train_out = model(imgs)
+        img, targets, paths, shapes = data["img"], data["label_out"], data["img_files"], data["shapes"]
+        img = img.astype(np.float) / 255.0
+        img_tensor = Tensor(img, ms.float32)
+        targets_tensor = Tensor(targets, ms.float32)
+        targets = targets.reshape((-1, 6))
+        targets = targets[targets[:, 1] >= 0]
+        nb, _, height, width = img.shape
+        out, train_out = model(img_tensor)
+        targets[:, 2:] *= np.array([width, height, width, height], targets.dtype)  # to pixels
         # out = ms.Tensor(np.random.randn(2, 20, 85), ms.float32)
         out = non_max_suppression(out, conf_thres, iou_thres, labels=lb, multi_label=True, agnostic=single_cls)
-        targets = data['label_out']
+
         for si, pred in enumerate(out):
-            labels = targets[si]
+            labels = targets[targets[:, 0] == si, 1:]
             nl = len(labels)
-            tcls = labels[:, 1].tolist() if nl else []  # target class
-            predn = pred.copy()
-            tbox = xywh2xyxy(labels[:, 2:6])  # target boxes
-            labelsn = np.concatenate((labels[:, 1:2], tbox), 1)  # native-space labels
-            iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
-            niou = iouv.shape[0]
-            correct = process_batch(predn, labelsn, iouv)
+            tcls = labels[:, 0].tolist() if nl else []  # target class
+            predn = np.copy(pred)
+
+            correct = np.zeros((pred.shape[0], niou), dtype=np.bool)
+
+            # Per target class
+            if nl:
+                detected = []  # target indices
+                tcls_np = labels[:, 0]
+                tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
+                scale_coords(img[si].shape[1:], tbox, shapes[si][0, :], shapes[si][1:, :])  # native-space labels
+                for cls in np.unique(tcls_np):
+                    # ti = (cls == tcls_np).nonzero(as_tuple=False).view(-1)  # prediction indices
+                    # pi = (cls == pred[:, 5]).nonzero(as_tuple=False).view(-1)  # target indices
+                    ti = np.nonzero(cls == tcls_np)[0].reshape(-1)  # prediction indices
+                    pi = np.nonzero(cls == pred[:, 5])[0].reshape(-1)  # target indices
+
+                    # Search for detections
+                    if pi.shape[0]:
+                        # Prediction to target ious
+                        all_ious = box_iou(predn[pi, :4], tbox[ti])
+                        ious = all_ious.max(1)  # best ious, indices
+                        i = all_ious.argmax(1)
+
+                        # Append detections
+                        detected_set = set()
+                        for j in (ious > iouv[0]).nonzero()[0]:
+                            d = ti[i[j]]  # detected target
+                            if d.item() not in detected_set:
+                                detected_set.add(d.item())
+                                detected.append(d)
+                                correct[pi[j]] = ious[j] > iouv  # iou_thres is 1xn
+                                if len(detected) == nl:  # all targets already located in image
+                                    break
+
+            # labelsn = np.concatenate((labels[:, 0:1], tbox), 1)  # native-space labels
+            # iouv = np.linspace(0.5, 0.95, 10)  # iou vector for mAP@0.5:0.95
+            # niou = iouv.shape[0]
+            # correct = process_batch(predn, labelsn, iouv)
             stats.append((correct, pred[:, 4], pred[:, 5], tcls))  # (correct, conf, pcls, tcls)
 
     stats = [np.concatenate(x, 0) for x in zip(*stats)]  # to numpy
     p, r, ap, f1, ap_class = ap_per_class(*stats, plot=False)
-    print(ap)
-    ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
-    mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
-    print(map)
+    ap50, ap75, ap = ap[:, 0], ap[:, 5], ap.mean(1)  # AP@0.5, AP@0.5:0.95
+    mp, mr, map50, map75, map = p.mean(), r.mean(), ap50.mean(), ap75.mean(), ap.mean()
+    print('ap50=', map50)
+    print('ap75=', map75)
+    print('map=', map)
