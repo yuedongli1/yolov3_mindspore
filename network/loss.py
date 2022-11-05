@@ -171,6 +171,9 @@ class ComputeLoss(nn.Cell):
         lobj = ops.zeros(1, ms.float32) # object loss
 
         tcls, tbox, indices, anchors, tmasks = self.build_targets(p, targets)  # class, box, (image, anchor, gridj, gridi), anchors, mask
+        tcls, tbox, indices, anchors, tmasks = ops.stop_gradient(tcls), ops.stop_gradient(tbox), \
+                                               ops.stop_gradient(indices), ops.stop_gradient(anchors), \
+                                               ops.stop_gradient(tmasks)
 
 
         # Losses
