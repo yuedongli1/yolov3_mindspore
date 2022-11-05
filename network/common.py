@@ -83,7 +83,7 @@ class Conv(nn.Cell):
                               has_bias=False,
                               # weight_init=HeUniform(negative_slope=5))
                               weight_init=_init_weights((c2, c1, k, k)))
-        self.bn = nn.BatchNorm2d(c2, eps=1e-3, momentum=0.03)
+        self.bn = nn.BatchNorm2d(c2, eps=1e-3, momentum=0.97)
         self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Cell) else nn.Identity())
 
     def construct(self, x):

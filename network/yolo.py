@@ -12,11 +12,10 @@ def initialize_weights(model):
     for m in model.cells():
         t = type(m)
         if t is nn.Conv2d:
-
             pass  # nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         elif t is nn.BatchNorm2d:
             m.eps = 1e-3
-            m.momentum = 0.03
+            m.momentum = 0.97
 
 
 @ops.constexpr
@@ -83,7 +82,7 @@ class Model(nn.Cell):
             # print('Strides: %s' % m.stride.tolist())
 
         # Init weights, biases
-        initialize_weights(self)
+        # initialize_weights(self)
 
     def construct(self, x, augment=False):
         if augment:
