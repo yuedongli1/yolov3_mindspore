@@ -120,6 +120,7 @@ def train(hyp, opt):
 
     # Def train func
     compute_loss = ComputeLoss(model)  # init loss class
+    ms.amp.auto_mixed_precision(compute_loss, amp_level='O2')
     if opt.is_distributed:
         mean = context.get_auto_parallel_context("gradients_mean")
         degree = context.get_auto_parallel_context("device_num")
