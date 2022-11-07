@@ -129,6 +129,7 @@ def train(hyp, opt):
     loss_scaler = DynamicLossScaler(2**10, 2, 1000)
     @ms.ms_function
     def forward_func(x, label, sizes=None):
+        x /= 255.0
         if sizes is not None:
             x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
         pred = model(x)
