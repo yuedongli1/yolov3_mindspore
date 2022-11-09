@@ -12,7 +12,7 @@ def get_group_param_yolov3(model):
     for p in model.trainable_params():
         if "bias" in p.name:
             pg2.append(p)  # biases
-        if "bn.gamma" in p.name or 'bn.beta' in p.name:
+        if "bn.gamma" in p.name in p.name:
             pg0.append(p) # no decay
         elif "weight" in p.name:
             pg1.append(p) # apply decay

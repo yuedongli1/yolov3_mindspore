@@ -131,7 +131,6 @@ class Detect(nn.Cell):
                                         has_bias=True, weight_init=HeUniform(negative_slope=5), bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
         # self.inplace = inplace
 
-    @ms.ms_function
     def construct(self, x):
         # x = x.copy()  # for profiling
         z = ()  # inference output
@@ -141,6 +140,7 @@ class Detect(nn.Cell):
             out = self.m[i](x[i])  # conv
             bs, _, ny, nx = out.shape  # x(bs,255,20,20) to x(bs,3,20,20,85)
             out = ops.Transpose()(out.view(bs, self.na, self.no, ny, nx), (0, 1, 3, 4, 2))
+            out = out
             outs += (out,)
 
             if not self.training:  # inference
@@ -174,7 +174,7 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
         for j, a in enumerate(args):
             try:
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
-            except NameError:
+            except:
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain

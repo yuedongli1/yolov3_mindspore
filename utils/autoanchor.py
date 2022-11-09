@@ -10,3 +10,4 @@ def check_anchor_order(m):
     if ops.Sign()(da) != ops.Sign()(ds): # same order
         print('Reversing anchor order')
         m.anchors[:] = ops.ReverseV2(axis=0)(m.anchors)
+        m.anchor_grid[:] = ops.ReverseV2(axis=0)(m.anchor_grid)

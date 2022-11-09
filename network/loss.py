@@ -27,8 +27,8 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
     else:  # x1, y1, x2, y2 = box1
         b1_x1, b1_y1, b1_x2, b1_y2 = ops.split(box1, 1, 4)
         b2_x1, b2_y1, b2_x2, b2_y2 = ops.split(box2, 1, 4)
-        w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
-        w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
+        w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1
+        w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1
 
     # Intersection area
     inter = (ops.minimum(b1_x2, b2_x2) - ops.maximum(b1_x1, b2_x1)).clip(0, None) * \
@@ -46,7 +46,7 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7
             c2 = cw ** 2 + ch ** 2 + eps  # convex diagonal squared
             rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2) ** 2 + (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center dist ** 2
             if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
-                v = (4 / get_pi() ** 2) * ops.pow(ops.atan(w2 / h2) - ops.atan(w1 / h1), 2)
+                v = (4 / get_pi(iou.dtype) ** 2) * ops.pow(ops.atan(w2 / (h2 + eps)) - ops.atan(w1 / (h1 + eps)), 2)
                 alpha = v / (v - iou + (1 + eps))
                 alpha = ops.stop_gradient(alpha)
                 return iou - (rho2 / c2 + v * alpha)  # CIoU
@@ -72,7 +72,8 @@ class FocalLoss(nn.Cell):
         assert self.loss_fcn.reduction == 'none'  # required to apply FL to each element
 
     def construct(self, pred, true, mask=None):
-        loss = self.loss_fcn(pred, true)
+        ori_dtype = pred.dtype
+        loss = self.loss_fcn(pred.astype(ms.float32), true.astype(ms.float32))
         # p_t = torch.exp(-loss)
         # loss *= self.alpha * (1.000001 - p_t) ** self.gamma  # non-zero power for gradient stability
 
@@ -84,17 +85,17 @@ class FocalLoss(nn.Cell):
         modulating_factor = (1.0 - p_t) ** self.gamma
         loss *= alpha_factor * modulating_factor
 
-        if mask is None:
-            mask = ops.ones(loss.shape, loss.dtype)
-        else:
+        if mask is not None:
             loss *= mask
 
         if self.reduction == 'mean':
-            return loss.sum() / mask.sum().clip(1, None)
+            if mask is not None:
+                return (loss.sum() / mask.sum().clip(1, None)).astype(ori_dtype)
+            return loss.mean().astype(ori_dtype)
         elif self.reduction == 'sum':
-            return loss.sum()
+            return loss.sum().astype(ori_dtype)
         else:  # 'none'
-            return loss
+            return loss.astype(ori_dtype)
 
 
 class BCEWithLogitsLoss(nn.Cell):
@@ -106,19 +107,20 @@ class BCEWithLogitsLoss(nn.Cell):
         assert self.loss_fcn.reduction == 'none'  # required to apply FL to each element
 
     def construct(self, pred, true, mask=None):
-        loss = self.loss_fcn(pred, true)
+        ori_dtype = pred.dtype
+        loss = self.loss_fcn(pred.astype(ms.float32), true.astype(ms.float32))
 
-        if mask is None:
-            mask = ops.ones(loss.shape, loss.dtype)
-        else:
+        if mask is not None:
             loss *= mask
 
         if self.reduction == 'mean':
-            return loss.sum() / mask.sum().clip(1, None)
+            if mask is not None:
+                return (loss.sum() / mask.astype(loss.dtype).sum().clip(1, None)).astype(ori_dtype)
+            return loss.mean().astype(ori_dtype)
         elif self.reduction == 'sum':
-            return loss.sum()
+            return loss.sum().astype(ori_dtype)
         else:  # 'none'
-            return loss
+            return loss.astype(ori_dtype)
 
 
 class ComputeLoss(nn.Cell):
@@ -166,9 +168,9 @@ class ComputeLoss(nn.Cell):
         ], dtype=ms.float32)
 
     def construct(self, p, targets):  # predictions, targets
-        lcls = ops.zeros(1, ms.float32) # class loss
-        lbox = ops.zeros(1, ms.float32) # box loss
-        lobj = ops.zeros(1, ms.float32) # object loss
+        lcls = 0. # class loss
+        lbox = 0. # box loss
+        lobj = 0. # object loss
 
         tcls, tbox, indices, anchors, tmasks = self.build_targets(p, targets)  # class, box, (image, anchor, gridj, gridi), anchors, mask
         tcls, tbox, indices, anchors, tmasks = ops.stop_gradient(tcls), ops.stop_gradient(tbox), \
@@ -201,7 +203,7 @@ class ComputeLoss(nn.Cell):
                 iou = ops.Identity()(iou).clip(0, None)
                 if self.sort_obj_iou:
                     _, j = ops.sort(iou)
-                    b, a, gj, gi, iou, tmask_sorted = b[j], a[j], gj[j], gi[j], iou[j], tmask[j]
+                    b, a, gj, gi, iou, tmask = b[j], a[j], gj[j], gi[j], iou[j], tmask[j]
                 if self.gr < 1:
                     iou = (1.0 - self.gr) + self.gr * iou
                 # tobj[b, a, gj, gi] = iou * tmask  # iou ratio
@@ -227,7 +229,9 @@ class ComputeLoss(nn.Cell):
         lcls *= self.hyp_cls
         bs = p[0].shape[0]  # batch size
 
-        return (lbox + lobj + lcls) * bs, ops.identity(ops.concat((lbox, lobj, lcls)))
+        loss = lbox + lobj + lcls
+
+        return loss * bs, ops.identity(ops.stack((lbox, lobj, lcls, loss)))
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
@@ -241,11 +245,11 @@ class ComputeLoss(nn.Cell):
         targets = ops.concat((ops.tile(targets, (na, 1, 1)), ai[:, :, None]), 2) # append anchor indices # shape: (na, nt, 7)
 
         g = 0.5  # bias
-        off = self._off * g  # offsets
+        off = ops.cast(self._off, targets.dtype) * g  # offsets
 
         for i in range(self.nl):
             anchors, shape = self.anchors[i], p[i].shape
-            gain[2:6] = get_tensor(shape)[[3, 2, 3, 2]] # xyxy gain
+            gain[2:6] = get_tensor(shape, targets.dtype)[[3, 2, 3, 2]] # xyxy gain
 
             # Match targets to anchors
             t = targets * gain  # shape(na,nt,7) # xywhn -> xywh
@@ -265,19 +269,38 @@ class ComputeLoss(nn.Cell):
             lm = ops.logical_and((gxi % 1 < g), (gxi > 1))
             j, k = jk[:, 0], jk[:, 1]
             l, m = lm[:, 0], lm[:, 1]
-            j = ops.stack((ops.ones_like(j), j, k, l, m)) # shape: (5, *)
 
-            t = ops.tile(t, (5, 1, 1)) # shape(5, *, 7)
+            # original
+            # j = ops.stack((ops.ones_like(j), j, k, l, m)) # shape: (5, *)
+            #
+            # t = ops.tile(t, (5, 1, 1)) # shape(5, *, 7)
+            #
+            # mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            # t = t.view(-1, 7)
+            #
+            # # t = t.repeat((5, 1, 1))[j]
+            #
+            # offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :]) #(1,*,2) + (5,1,2) -> (5,*,2)
+            # offsets = offsets.view(-1, 2)
+            # # offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
 
-            mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            # faster,
+            tag1, tag2 = ops.identity(j), ops.identity(k)
+            tag1, tag2 = ops.tile(tag1[:, None], (1, 2)), ops.tile(tag2[:, None], (1, 2))
+            j_l = ops.logical_or(j, l).astype(ms.int32)
+            k_m = ops.logical_or(k, m).astype(ms.int32)
+            center = ops.ones_like(j_l)
+            j = ops.stack((center, j_l, k_m))
+            t = ops.tile(t, (3, 1, 1))  # shape(5, *, 7)
             t = t.view(-1, 7)
-
-            # t = t.repeat((5, 1, 1))[j]
-
-            offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :]) #(1,*,2) + (5,1,2) -> (5,*,2)
+            mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :])  # (1,*,2) + (5,1,2) -> (5,na*nt,2)
+            offsets_new = ops.zeros((3,) + offsets.shape[1:], offsets.dtype)
+            # offsets_new[0, :, :] = offsets[0, :, :]
+            offsets_new[1:2, :, :] = ops.select(tag1.astype(ms.bool_), offsets[1, :, :], offsets[3, :, :])
+            offsets_new[2:3, :, :] = ops.select(tag2.astype(ms.bool_), offsets[2, :, :], offsets[4, :, :])
+            offsets = offsets_new
             offsets = offsets.view(-1, 2)
-            # offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
-
 
             # Define
             b, c, gxy, gwh, a = ops.cast(t[:, 0], ms.int32), \

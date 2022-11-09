@@ -27,7 +27,7 @@ def train(hyp, opt):
         opt.save_dir, opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.rank, opt.freeze
 
     with open(opt.data, 'rb') as f:
-        data_dict = yaml.safe_load(f)  # data dict
+        data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
     nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
@@ -77,7 +77,7 @@ def train(hyp, opt):
     dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, batch_size, gs, opt,
                                                             hyp=hyp, augment=True, cache=opt.cache_images,
                                                             rect=opt.rect, rank_size=opt.rank_size, rank=opt.rank,
-                                                            num_parallel_workers=1,
+                                                            num_parallel_workers=8 if rank_size > 1 else 16,
                                                             image_weights=opt.image_weights, quad=opt.quad,
                                                             prefix=colorstr('train: '))
     mlc = np.concatenate(dataset.labels, 0)[:, 0].max()  # max label class
@@ -118,56 +118,24 @@ def train(hyp, opt):
     if ema:
         ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'gr', 'names', 'stride', 'class_weights'])
 
-    # Def train func
-    compute_loss = ComputeLoss(model)  # init loss class
-    ms.amp.auto_mixed_precision(compute_loss, amp_level='O2')
     if opt.is_distributed:
         mean = context.get_auto_parallel_context("gradients_mean")
         degree = context.get_auto_parallel_context("device_num")
         grad_reducer = nn.DistributedGradReducer(optimizer.parameters, mean, degree)
     else:
         grad_reducer = ops.functional.identity
-    loss_scaler = DynamicLossScaler(2**10, 2, 1000)
-    @ms.ms_function
-    def forward_func(x, label, sizes=None):
-        x /= 255.0
-        if sizes is not None:
-            x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
-        pred = model(x)
-        loss, loss_items = compute_loss(pred, label)
-        return loss, ops.stop_gradient(loss_items)
-
-    grad_fn = ops.GradOperation(get_by_list=True, sens_param=True)(forward_func, optimizer.parameters)
-    sens_value = 1.0
-    # grad_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
-
-    all_finite_fn = all_finite if context.get_context("device_target") != "CPU" else all_finite_cpu
-    @ms.ms_function
-    def train_step(x, label, sizes=None, optimizer_update=True):
-
-        loss, loss_items = forward_func(x, label, sizes)
-        sens1, sens2 = ops.fill(loss.dtype, loss.shape, sens_value), \
-                       ops.fill(loss_items.dtype, loss_items.shape, sens_value)
-        grads = grad_fn(x, label, sizes, (sens1, sens2))
-        grads = grad_reducer(grads)
-        grads_finite = all_finite_fn(grads)
-
-        if optimizer_update:
-            if grads_finite:
-                loss = ops.depend(loss, optimizer(grads))
-            else:
-                print("overflow, drop the step")
-        return loss, loss_items, grads, grads_finite
-
+    train_step = create_train_static_shape_fn_gradoperation(model, optimizer, grad_reducer)
 
     # Start training
-    data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=300)
+    data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=1)
+    s_time = time.time()
     accumulate_grads = None
-    accumulate_finite = Tensor(True, ms.bool_)
+    accumulate_cur_step = 0
+
     model.set_train(True)
     optimizer.set_train(True)
+
     for i, data in enumerate(data_loader):
-        s_time = time.time()
         if i < warmup_steps:
             xi = [0, warmup_steps]  # x interp
             accumulate = max(1, np.interp(i, xi, [1, nbs / total_batch_size]).round())
@@ -179,7 +147,6 @@ def train(hyp, opt):
         cur_step = (i % per_epoch_size) + 1
         imgs, labels, paths = data["img"], data["label_out"], data["img_files"]
         imgs, labels = Tensor(imgs, ms.float32), Tensor(labels, ms.float32)
-        print(imgs.shape, labels.shape)
 
         # Multi-scale
         ns = None
@@ -191,27 +158,38 @@ def train(hyp, opt):
                 # imgs = ops.interpolate(imgs, sizes=ns, coordinate_transformation_mode="asymmetric", mode="bilinear")
 
         # Accumulate Grad
+        s_train_time = time.time()
         if accumulate == 1:
-            _, loss_item, _, _ = train_step(imgs, labels, ns, True)
+            _, loss_item, _, grads_finite = train_step(imgs, labels, ns, True)
         else:
             _, loss_item, grads, grads_finite = train_step(imgs, labels, ns, False)
-            accumulate_finite = ops.logical_and(accumulate_finite, grads_finite)
-            if accumulate_grads:
-                assert len(accumulate_grads) == len(grads)
-                for gi in range(len(grads)):
-                    accumulate_grads[gi] += grads[gi]
+            if grads_finite:
+                accumulate_cur_step += 1
+                if accumulate_grads:
+                    assert len(accumulate_grads) == len(grads)
+                    for gi in range(len(grads)):
+                        accumulate_grads[gi] += grads[gi]
 
+                else:
+                    accumulate_grads = list(grads)
+                if accumulate_cur_step % accumulate == 0:
+                    optimizer(tuple(accumulate_grads))
+                    print(f"-Epoch: {cur_epoch}, Step: {cur_step}, optimizer an accumulate step success.")
+                    # reset accumulate
+                    accumulate_grads = None
+                    accumulate_cur_step = 0
             else:
-                accumulate_grads = grads
+                print(f"Epoch: {cur_epoch}, Step: {cur_step}, this step grad overflow, drop. ")
 
-            if i % accumulate == 0:
-                optimizer(accumulate_grads)
-                _ = loss_scaler.adjust(accumulate_finite)
-                accumulate_grads = None
-        print(f"epoch {epochs}/{cur_epoch}, step {per_epoch_size}/{cur_step}, "
-              f"lbox: {loss_item[0].asnumpy():.4f}, lobj: {loss_item[1].asnumpy():.4f}, "
-              f"lcls: {loss_item[2].asnumpy():.4f}, step time: {(time.time() - s_time) * 1000:.2f} ms, ms/img: {((time.time() - s_time) * 1000) / batch_size:.2f}")
+        _p_train_size = ns if ns else imgs.shape[2:]
+        print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
+              f"fp/bp time cost: {(time.time() - s_train_time) * 1000:.2f} ms")
+        print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
+              f"loss: {loss_item[3].asnumpy():.4f}, lbox: {loss_item[0].asnumpy():.4f}, lobj: "
+              f"{loss_item[1].asnumpy():.4f}, lcls: {loss_item[2].asnumpy():.4f}, "
+              f"step time: {(time.time() - s_time) * 1000:.2f} ms")
 
+        s_time = time.time()
         if (rank % 8 == 0) and ((i + 1) % per_epoch_size == 0):
             # Save Checkpoint
             model_name = os.path.basename(opt.cfg)[:-5] # delete ".yaml"
@@ -223,6 +201,40 @@ def train(hyp, opt):
 
         # TODO: eval every epoch
 
+def create_train_static_shape_fn_gradoperation(model, optimizer, grad_reducer=None):
+    from mindspore.amp import all_finite
+    compute_loss = ComputeLoss(model)  # init loss class
+
+    def forward_func(x, label, sizes=None):
+        x /= 255.0
+        if sizes is not None:
+            x = ops.interpolate(x, sizes=sizes, coordinate_transformation_mode="asymmetric", mode="bilinear")
+        pred = model(x)
+        loss, loss_items = compute_loss(pred, label)
+        return loss, ops.stop_gradient(loss_items)
+
+    grad_fn = ops.GradOperation(get_by_list=True, sens_param=True)(forward_func, optimizer.parameters)
+    sens_value = 1.0
+# grad_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
+
+    @ms.ms_function
+    def train_step(x, label, sizes=None, optimizer_update=True):
+
+        loss, loss_items = forward_func(x, label, sizes)
+        sens1, sens2 = ops.fill(loss.dtype, loss.shape, sens_value), \
+                       ops.fill(loss_items.dtype, loss_items.shape, sens_value)
+        grads = grad_fn(x, label, sizes, (sens1, sens2))
+        grads = grad_reducer(grads)
+        grads_finite = all_finite(grads)
+
+        if optimizer_update:
+            if grads_finite:
+                loss = ops.depend(loss, optimizer(grads))
+            else:
+                loss = ops.depend(loss, optimizer(grads))
+                print("overflow, drop the step")
+        return loss, loss_items, grads, grads_finite
+    return train_step
 
 if __name__ == '__main__':
     opt = get_args_train()
