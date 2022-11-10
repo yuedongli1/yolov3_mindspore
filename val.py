@@ -317,7 +317,7 @@ if __name__ == '__main__':
     lb = []
     val_path = "D:/yolov3_fromv7/datasets/coco128"
     imgsz, _ = [640, 640]
-    batch_size = 1
+    batch_size = 32
     gs = 32
     cfg = "./config/network/yolov3.yaml"
     model = Model(cfg, ch=3, nc=80, anchors=None)
