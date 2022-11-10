@@ -271,36 +271,30 @@ class ComputeLoss(nn.Cell):
             l, m = lm[:, 0], lm[:, 1]
 
             # original
-            # j = ops.stack((ops.ones_like(j), j, k, l, m)) # shape: (5, *)
-            #
-            # t = ops.tile(t, (5, 1, 1)) # shape(5, *, 7)
-            #
-            # mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
-            # t = t.view(-1, 7)
-            #
-            # # t = t.repeat((5, 1, 1))[j]
-            #
-            # offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :]) #(1,*,2) + (5,1,2) -> (5,*,2)
-            # offsets = offsets.view(-1, 2)
-            # # offsets = (torch.zeros_like(gxy)[None] + off[:, None])[j]
+            j = ops.stack((ops.ones_like(j), j, k, l, m)) # shape: (5, *)
+            t = ops.tile(t, (5, 1, 1)) # shape(5, *, 7)
+            mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            t = t.view(-1, 7)
+            offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :]) #(1,*,2) + (5,1,2) -> (5,*,2)
+            offsets = offsets.view(-1, 2)
 
             # faster,
-            tag1, tag2 = ops.identity(j), ops.identity(k)
-            tag1, tag2 = ops.tile(tag1[:, None], (1, 2)), ops.tile(tag2[:, None], (1, 2))
-            j_l = ops.logical_or(j, l).astype(ms.int32)
-            k_m = ops.logical_or(k, m).astype(ms.int32)
-            center = ops.ones_like(j_l)
-            j = ops.stack((center, j_l, k_m))
-            t = ops.tile(t, (3, 1, 1))  # shape(5, *, 7)
-            t = t.view(-1, 7)
-            mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
-            offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :])  # (1,*,2) + (5,1,2) -> (5,na*nt,2)
-            offsets_new = ops.zeros((3,) + offsets.shape[1:], offsets.dtype)
-            # offsets_new[0, :, :] = offsets[0, :, :]
-            offsets_new[1:2, :, :] = ops.select(tag1.astype(ms.bool_), offsets[1, :, :], offsets[3, :, :])
-            offsets_new[2:3, :, :] = ops.select(tag2.astype(ms.bool_), offsets[2, :, :], offsets[4, :, :])
-            offsets = offsets_new
-            offsets = offsets.view(-1, 2)
+            # tag1, tag2 = ops.identity(j), ops.identity(k)
+            # tag1, tag2 = ops.tile(tag1[:, None], (1, 2)), ops.tile(tag2[:, None], (1, 2))
+            # j_l = ops.logical_or(j, l).astype(ms.int32)
+            # k_m = ops.logical_or(k, m).astype(ms.int32)
+            # center = ops.ones_like(j_l)
+            # j = ops.stack((center, j_l, k_m))
+            # t = ops.tile(t, (3, 1, 1))  # shape(5, *, 7)
+            # t = t.view(-1, 7)
+            # mask_m_t = (ops.cast(j, ms.int32) * ops.cast(mask_m_t[None, :], ms.int32)).view(-1)
+            # offsets = (ops.zeros_like(gxy)[None, :, :] + off[:, None, :])  # (1,*,2) + (5,1,2) -> (5,na*nt,2)
+            # offsets_new = ops.zeros((3,) + offsets.shape[1:], offsets.dtype)
+            # # offsets_new[0, :, :] = offsets[0, :, :]
+            # offsets_new[1:2, :, :] = ops.select(tag1.astype(ms.bool_), offsets[1, :, :], offsets[3, :, :])
+            # offsets_new[2:3, :, :] = ops.select(tag2.astype(ms.bool_), offsets[2, :, :], offsets[4, :, :])
+            # offsets = offsets_new
+            # offsets = offsets.view(-1, 2)
 
             # Define
             b, c, gxy, gwh, a = ops.cast(t[:, 0], ms.int32), \

@@ -126,7 +126,6 @@ def train(hyp, opt):
         grad_reducer = nn.DistributedGradReducer(optimizer.parameters, mean, degree)
     else:
         grad_reducer = ops.functional.identity
-    loss_scaler = DynamicLossScaler(2**10, 2, 1000)
     @ms.ms_function
     def forward_func(x, label, sizes=None):
         x /= 255.0
@@ -140,7 +139,7 @@ def train(hyp, opt):
     sens_value = 1.0
     # grad_fn = ops.value_and_grad(forward_func, grad_position=None, weights=optimizer.parameters, has_aux=True)
 
-    all_finite_fn = all_finite if context.get_context("device_target") != "CPU" else all_finite_cpu
+    from mindspore.amp import all_finite
     @ms.ms_function
     def train_step(x, label, sizes=None, optimizer_update=True):
 
@@ -149,22 +148,23 @@ def train(hyp, opt):
                        ops.fill(loss_items.dtype, loss_items.shape, sens_value)
         grads = grad_fn(x, label, sizes, (sens1, sens2))
         grads = grad_reducer(grads)
-        grads_finite = all_finite_fn(grads)
+        grads_finite = all_finite(grads)
 
         if optimizer_update:
             if grads_finite:
                 loss = ops.depend(loss, optimizer(grads))
             else:
-                print("overflow, drop the step")
+                loss = ops.depend(loss, optimizer(grads))
+                print("overflow, still update")
         return loss, loss_items, grads, grads_finite
 
 
     # Start training
     data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=300)
     accumulate_grads = None
-    accumulate_finite = Tensor(True, ms.bool_)
     model.set_train(True)
     optimizer.set_train(True)
+    accumulate_cur_step = 0
     for i, data in enumerate(data_loader):
         s_time = time.time()
         if i < warmup_steps:
@@ -178,7 +178,6 @@ def train(hyp, opt):
         cur_step = (i % per_epoch_size) + 1
         imgs, labels, paths = data["img"], data["label_out"], data["img_files"]
         imgs, labels = Tensor(imgs, ms.float32), Tensor(labels, ms.float32)
-        print(imgs.shape, labels.shape)
 
         # Multi-scale
         ns = None
@@ -190,26 +189,33 @@ def train(hyp, opt):
                 # imgs = ops.interpolate(imgs, sizes=ns, coordinate_transformation_mode="asymmetric", mode="bilinear")
 
         # Accumulate Grad
+        s_train_time = time.time()
         if accumulate == 1:
             _, loss_item, _, _ = train_step(imgs, labels, ns, True)
         else:
             _, loss_item, grads, grads_finite = train_step(imgs, labels, ns, False)
-            accumulate_finite = ops.logical_and(accumulate_finite, grads_finite)
-            if accumulate_grads:
-                assert len(accumulate_grads) == len(grads)
-                for gi in range(len(grads)):
-                    accumulate_grads[gi] += grads[gi]
+            if grads_finite:
+                accumulate_cur_step += 1
+                if accumulate_grads:
+                    assert len(accumulate_grads) == len(grads)
+                    for gi in range(len(grads)):
+                        accumulate_grads[gi] += grads[gi]
 
-            else:
-                accumulate_grads = grads
+                else:
+                    accumulate_grads = list(grads)
 
-            if i % accumulate == 0:
-                optimizer(accumulate_grads)
-                _ = loss_scaler.adjust(accumulate_finite)
-                accumulate_grads = None
-        print(f"epoch {epochs}/{cur_epoch}, step {per_epoch_size}/{cur_step}, "
-              f"lbox: {loss_item[0].asnumpy():.4f}, lobj: {loss_item[1].asnumpy():.4f}, "
-              f"lcls: {loss_item[2].asnumpy():.4f}, step time: {(time.time() - s_time) * 1000:.2f} ms, ms/img: {((time.time() - s_time) * 1000) / batch_size:.2f}")
+                if accumulate_cur_step % accumulate == 0:
+                    optimizer(tuple(accumulate_grads))
+                    print(f"-Epoch: {cur_epoch}, Step: {cur_step}, optimizer an accumulate step success.")
+                    accumulate_grads = None
+                    accumulate_cur_step = 0
+        _p_train_size = ns if ns else imgs.shape[2:]
+        print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
+              f"fp/bp time cost: {(time.time() - s_train_time) * 1000:.2f} ms")
+        print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
+              f"loss: {loss_item[3].asnumpy():.4f}, lbox: {loss_item[0].asnumpy():.4f}, lobj: "
+              f"{loss_item[1].asnumpy():.4f}, lcls: {loss_item[2].asnumpy():.4f}, "
+              f"step time: {(time.time() - s_time) * 1000:.2f} ms")
 
         if (rank % 8 == 0) and ((i + 1) % per_epoch_size == 0):
             # Save Checkpoint

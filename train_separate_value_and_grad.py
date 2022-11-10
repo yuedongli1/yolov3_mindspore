@@ -178,7 +178,6 @@ def train(hyp, opt):
         cur_step = (i % per_epoch_size) + 1
         imgs, labels, paths = data["img"], data["label_out"], data["img_files"]
         imgs, labels = Tensor(imgs, ms.float32), Tensor(labels, ms.float32)
-        print(imgs.shape, labels.shape)
 
         # Multi-scale
         ns = None
@@ -190,6 +189,7 @@ def train(hyp, opt):
                 # imgs = ops.interpolate(imgs, sizes=ns, coordinate_transformation_mode="asymmetric", mode="bilinear")
 
         # Accumulate Grad
+        s_train_time = time.time()
         if accumulate == 1:
             _, loss_item, _, _ = train_step(imgs, labels, ns, True)
         else:
@@ -209,9 +209,13 @@ def train(hyp, opt):
                 _ = loss_scaler.adjust(accumulate_finite)
                 accumulate_grads = None
                 accumulate_cur_step = 0
-        print(f"epoch {epochs}/{cur_epoch}, step {per_epoch_size}/{cur_step}, "
-              f"lbox: {loss_item[0].asnumpy():.4f}, lobj: {loss_item[1].asnumpy():.4f}, "
-              f"lcls: {loss_item[2].asnumpy():.4f}, step time: {(time.time() - s_time) * 1000:.2f} ms, ms/img: {((time.time() - s_time) * 1000) / batch_size:.2f}")
+        _p_train_size = ns if ns else imgs.shape[2:]
+        print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
+              f"fp/bp time cost: {(time.time() - s_train_time) * 1000:.2f} ms")
+        print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
+              f"loss: {loss_item[3].asnumpy():.4f}, lbox: {loss_item[0].asnumpy():.4f}, lobj: "
+              f"{loss_item[1].asnumpy():.4f}, lcls: {loss_item[2].asnumpy():.4f}, "
+              f"step time: {(time.time() - s_time) * 1000:.2f} ms")
 
         if (rank % 8 == 0) and ((i + 1) % per_epoch_size == 0):
             # Save Checkpoint
