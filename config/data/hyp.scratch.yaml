@@ -19,17 +19,11 @@ hsv_s: 0.7  # image HSV-Saturation augmentation (fraction)
 hsv_v: 0.4  # image HSV-Value augmentation (fraction)
 degrees: 0.0  # image rotation (+/- deg)
 translate: 0.1  # image translation (+/- fraction)
-# diff1, default is 0.5
 scale: 0.5  # image scale (+/- gain)
 shear: 0.0  # image shear (+/- deg)
 perspective: 0.0  # image perspective (+/- fraction), range 0-0.001
 flipud: 0.0  # image flip up-down (probability)
 fliplr: 0.5  # image flip left-right (probability)
 mosaic: 1.0  # image mosaic (probability)
-# diff2, default is 0.0
 mixup: 0.0  # image mixup (probability)
 copy_paste: 0.0  # image copy paste (probability)
-# diff3, default is 0.0
-paste_in: 0.15  # image copy paste (probability), use 0 for faster training
-loss_ota: 1 # use ComputeLossOTA, use 0 for faster training
-max_box_per_img: 160 # label mask

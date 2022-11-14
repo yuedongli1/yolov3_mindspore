@@ -17,7 +17,7 @@ from mindspore.dataset.vision import Inter
 
 from utils.general import segments2boxes, xywhn2xyxy, xyxy2xywh
 from utils.augumentations import load_image, load_mosaic, letterbox, random_perspective, \
-    augment_hsv, pastein, load_samples
+    augment_hsv
 
 # Parameters
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -98,12 +98,12 @@ class LoadImagesAndLabels:  # for training/testing
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')  # cached labels
-        # if cache_path.is_file():
-        #     cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
-        #     assert cache['version'] == self.cache_version  # matches current version
-        #     assert cache['hash'] == get_hash(self.label_files + self.img_files)  # identical hash
-        # else:
-        cache, exists = self.cache_labels(cache_path, prefix), False  # cache
+        if cache_path.is_file():
+            cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
+            assert cache['version'] == self.cache_version  # matches current version
+            assert cache['hash'] == get_hash(self.label_files + self.img_files)  # identical hash
+        else:
+            cache, exists = self.cache_labels(cache_path, prefix), False  # cache
 
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupted, total
@@ -288,21 +288,10 @@ class LoadImagesAndLabels:  # for training/testing
             # if random.random() < 0.9:
             #     labels = cutout(img, labels)
 
-            if random.random() < hyp['paste_in']:
-                sample_labels, sample_images, sample_masks = [], [], []
-                while len(sample_labels) < 30:
-                    sample_labels_, sample_images_, sample_masks_ = \
-                        load_samples(self, random.randint(0, len(self.labels) - 1))
-                    sample_labels += sample_labels_
-                    sample_images += sample_images_
-                    sample_masks += sample_masks_
-                    # print(len(sample_labels))
-                    if len(sample_labels) == 0:
-                        break
-                labels = pastein(img, labels, sample_labels, sample_images, sample_masks)
-
         nL = len(labels)  # number of labels
         if nL:
+            labels[:, [1, 3]] = labels[:, [1, 3]].clip(0, img.shape[1] - 1e-3)  # x1, x2
+            labels[:, [2, 4]] = labels[:, [2, 4]].clip(0, img.shape[0] - 1e-3)  # y1, y2
             labels[:, 1:5] = xyxy2xywh(labels[:, 1:5])  # convert xyxy to xywh
             labels[:, [2, 4]] /= img.shape[0]  # normalized height 0-1
             labels[:, [1, 3]] /= img.shape[1]  # normalized width 0-1
@@ -413,7 +402,7 @@ if __name__ == '__main__':
     # python train.py --workers 8 --device 0 --batch-size 32 --data data/coco.yaml
     #   --img 640 640 --cfg cfg/training/yolov7.yaml --weights '' --name yolov7 --hyp data/hyp.scratch.p5.yaml
     import yaml
-    from config.args import get_args
+    from config.args import get_args_train
     from utils.general import check_file, increment_path, colorstr
     import network.yolo as yolo
     from mindspore import context
@@ -430,9 +419,9 @@ if __name__ == '__main__':
 
 
 
-    opt = get_args()
+    opt = get_args_train()
     # opt.hyp = opt.hyp or ('hyp.finetune.yaml' if opt.weights else 'hyp.scratch.yaml')
-    opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
+    opt.data, opt.cfg, opt.hyp = check_file('../config/data/coco.yaml'), check_file('../config/network/yolov3.yaml'), check_file('../config/data/hyp.scratch.yaml')  # check files
     assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
     opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)
     opt.name = 'evolve' if opt.evolve else opt.name
@@ -445,7 +434,7 @@ if __name__ == '__main__':
 
     # Train set
     train_path = "D:/yolov3_fromv7/datasets/coco/train2017.txt"
-    train_path = "D:/yolov3_fromv7/datasets/coco128"
+    # train_path = "D:/yolov3_fromv7/datasets/coco128"
     imgsz, _ = [640, 640]
     batch_size = 2
     gs = 32

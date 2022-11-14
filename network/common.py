@@ -128,7 +128,7 @@ class Detect(nn.Cell):
 
         self.m = nn.CellList([nn.Conv2d(x, self.no * self.na, 1,
                                         pad_mode="valid",
-                                        has_bias=True, weight_init=HeUniform(negative_slope=5), bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
+                                        has_bias=True, weight_init=_init_weights((self.no * self.na, x, 1, 1)), bias_init=_init_bias((self.no * self.na, x, 1, 1))) for x in ch])  # output conv
         # self.inplace = inplace
 
     def construct(self, x):

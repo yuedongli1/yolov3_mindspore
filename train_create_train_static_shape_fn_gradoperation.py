@@ -22,24 +22,26 @@ from utils.general import increment_path, colorstr, labels_to_class_weights, che
 
 
 def train(hyp, opt):
-    ms.set_seed(2)
     save_dir, epochs, batch_size, total_batch_size, weights, rank, freeze = \
         opt.save_dir, opt.epochs, opt.batch_size, opt.total_batch_size, opt.weights, opt.rank, opt.freeze
-
-    with open(opt.data, 'rb') as f:
-        data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
-    nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
-    names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
-    assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
     # Directories
     wdir = os.path.join(save_dir, "weights")
     os.makedirs(wdir, exist_ok=True)
+
     # Save run settings
     with open(os.path.join(save_dir, "hyp.yaml"), 'w') as f:
         yaml.dump(hyp, f, sort_keys=False)
     with open(os.path.join(save_dir, "opt.yaml"), 'w') as f:
         yaml.dump(vars(opt), f, sort_keys=False)
+
+    # Config
+    ms.set_seed(1 + rank)
+    with open(opt.data, 'rb') as f:
+        data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
+    nc = 1 if opt.single_cls else int(data_dict['nc'])  # number of classes
+    names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
+    assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
     # Model
     sync_bn = opt.sync_bn and context.get_context("device_target") == "Ascend" and rank_size > 1
@@ -71,8 +73,8 @@ def train(hyp, opt):
 
     # Image sizes
     gs = max(int(model.stride.asnumpy().max()), 32)  # grid size (max stride)
-    nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
     imgsz, imgsz_test = [check_img_size(x, gs) for x in opt.img_size]  # verify imgsz are gs-multiples
+
     train_path = data_dict['train']
     dataloader, dataset, per_epoch_size = create_dataloader(train_path, imgsz, batch_size, gs, opt,
                                                             hyp=hyp, augment=True, cache=opt.cache_images,
@@ -88,6 +90,7 @@ def train(hyp, opt):
     accumulate = max(round(nbs / total_batch_size), 1)  # accumulate loss before optimizing
     hyp['weight_decay'] *= total_batch_size * accumulate / nbs  # scale weight_decay
     print(f"Scaled weight_decay = {hyp['weight_decay']}")
+
     if "yolov3" in opt.cfg:
         pg0, pg1, pg2 = get_group_param_yolov3(model)
         lr_pg0, lr_pg1, lr_pg2, momentum_pg, warmup_steps = get_lr_yolov3(opt, hyp, per_epoch_size)
@@ -106,6 +109,7 @@ def train(hyp, opt):
         raise NotImplementedError
 
     # Model parameters
+    nl = model.model[-1].nl  # number of detection layers (used for scaling hyp['obj'])
     hyp['box'] *= 3. / nl  # scale to layers
     hyp['cls'] *= nc / 80. * 3. / nl  # scale to classes and layers
     hyp['obj'] *= (imgsz / 640) ** 2 * 3. / nl  # scale to image size and layers
@@ -179,7 +183,7 @@ def train(hyp, opt):
                     accumulate_grads = None
                     accumulate_cur_step = 0
             else:
-                print(f"Epoch: {cur_epoch}, Step: {cur_step}, this step grad overflow, drop. ")
+                print(f"Epoch: {cur_epoch}, Step: {cur_step}, this step grad overflow. ")
 
         _p_train_size = ns if ns else imgs.shape[2:]
         print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
@@ -232,7 +236,7 @@ def create_train_static_shape_fn_gradoperation(model, optimizer, grad_reducer=No
                 loss = ops.depend(loss, optimizer(grads))
             else:
                 loss = ops.depend(loss, optimizer(grads))
-                print("overflow, drop the step")
+                print("overflow, still update")
         return loss, loss_items, grads, grads_finite
     return train_step
 
