@@ -63,13 +63,24 @@ def autopad(k, p=None):  # kernel, padding
     return p
 
 
+# class Concat(nn.Cell):
+#     def __init__(self, dimension=1):
+#         super(Concat, self).__init__()
+#         self.d = dimension
+#
+#     def construct(self, x):
+#         return ops.concat(x, self.d)
+
 class Concat(nn.Cell):
     def __init__(self, dimension=1):
         super(Concat, self).__init__()
         self.d = dimension
+        self.concat = ops.Concat(self.d)
 
     def construct(self, x):
-        return ops.concat(x, self.d)
+        x1, x2 = x
+        ups = ops.ResizeNearestNeighbor((x1.shape[-2] * 2, x1.shape[-1] * 2))(x1)
+        return self.concat((ups, x2))
 
 
 class Conv(nn.Cell):
@@ -84,7 +95,7 @@ class Conv(nn.Cell):
                               # weight_init=HeUniform(negative_slope=5))
                               weight_init=_init_weights((c2, c1, k, k)))
         self.bn = nn.BatchNorm2d(c2, eps=1e-3, momentum=0.97)
-        self.act = nn.SiLU() if act is True else (act if isinstance(act, nn.Cell) else nn.Identity())
+        self.act = nn.LeakyReLU(0.1) if act is True else (act if isinstance(act, nn.Cell) else nn.Identity())
 
     def construct(self, x):
         x = self.conv(x)

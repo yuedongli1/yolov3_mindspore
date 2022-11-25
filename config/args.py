@@ -11,7 +11,7 @@ def get_args_train():
     parser.add_argument('--data', type=str, default='./config/data/coco.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='./config/data/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=300)
-    parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all device')
+    parser.add_argument('--batch-size', type=int, default=1, help='total batch size for all device')
     parser.add_argument('--img-size', nargs='+', type=int, default=[640, 640], help='[train, test] image sizes')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
     parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')

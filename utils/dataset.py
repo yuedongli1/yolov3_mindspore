@@ -433,7 +433,7 @@ if __name__ == '__main__':
         hyp = yaml.load(f, Loader=yaml.SafeLoader)  # load hyps
 
     # Train set
-    train_path = "D:/yolov3_fromv7/datasets/coco/train2017.txt"
+    train_path = "D:/yolov3-master/data/scripts/coco/train2017.txt"
     # train_path = "D:/yolov3_fromv7/datasets/coco128"
     imgsz, _ = [640, 640]
     batch_size = 2

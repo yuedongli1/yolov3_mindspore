@@ -235,8 +235,7 @@ def create_train_static_shape_fn_gradoperation(model, optimizer, grad_reducer=No
             if grads_finite:
                 loss = ops.depend(loss, optimizer(grads))
             else:
-                loss = ops.depend(loss, optimizer(grads))
-                print("overflow, still update")
+                print("overflow, drop")
         return loss, loss_items, grads, grads_finite
     return train_step
 
@@ -252,6 +251,9 @@ if __name__ == '__main__':
     context.set_context(mode=context.PYNATIVE_MODE, pynative_synchronize=True, device_target=opt.device_target)
     context.set_context(mode=context.GRAPH_MODE, device_target=opt.device_target)
     context.reset_auto_parallel_context()
+    if opt.device_target == "Ascend":
+        device_id = int(os.getenv('DEVICE_ID', 0))
+        context.set_context(device_id=device_id)
     # Distribute Train
     rank, rank_size, parallel_mode = 0, 1, ParallelMode.STAND_ALONE
     if opt.is_distributed:

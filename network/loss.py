@@ -9,6 +9,7 @@ from mindspore import nn, ops, Tensor
 def get_tensor(x, dtype=ms.float32):
     return Tensor(x, dtype)
 
+
 @ops.constexpr(reuse_result=True)
 def get_pi(dtype=ms.float32):
     return Tensor(math.pi, dtype)
@@ -197,10 +198,10 @@ class ComputeLoss(nn.Cell):
                 iou = bbox_iou(pbox, tbox[layer_index], CIoU=True).squeeze()  # iou(prediction, target)
                 # iou = iou * tmask
                 # lbox += ((1.0 - iou) * tmask).mean()  # iou loss
-                lbox += ((1.0 - iou) * tmask).sum() / tmask.astype(iou.dtype).sum()
+                lbox += (((1.0 - iou) * tmask).sum() / tmask.astype(iou.dtype).sum().clip(1, None)).astype(iou.dtype)
 
                 # Objectness
-                iou = ops.Identity()(iou).clip(0, None)
+                iou = ops.stop_gradient(iou).clip(0, None).astype(pi.dtype)
                 if self.sort_obj_iou:
                     _, j = ops.sort(iou)
                     b, a, gj, gi, iou, tmask = b[j], a[j], gj[j], gi[j], iou[j], tmask[j]
@@ -227,11 +228,11 @@ class ComputeLoss(nn.Cell):
         lbox *= self.hyp_box
         lobj *= self.hyp_obj
         lcls *= self.hyp_cls
-        bs = p[0].shape[0]  # batch size
+        bs = p[0].shape  # batch size
 
         loss = lbox + lobj + lcls
 
-        return loss * bs, ops.identity(ops.stack((lbox, lobj, lcls, loss)))
+        return loss * bs, ops.stop_gradient(ops.stack((lbox, lobj, lcls, loss)))
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)

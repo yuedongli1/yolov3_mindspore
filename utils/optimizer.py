@@ -10,7 +10,7 @@ def one_cycle(y1=0.0, y2=1.0, steps=100):
 def get_group_param_yolov3(model):
     pg0, pg1, pg2 = [], [], []  # optimizer parameter groups
     for p in model.trainable_params():
-        if "bias" in p.name:
+        if "bias" in p.name or 'bn.beta' in p.name:
             pg2.append(p)  # biases
         if "bn.gamma" in p.name:
             pg0.append(p) # no decay

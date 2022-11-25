@@ -4,7 +4,6 @@ import math
 import numpy as np
 from pathlib import Path
 import mindspore as ms
-import torch
 
 
 def check_file(file):

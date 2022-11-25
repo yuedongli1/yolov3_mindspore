@@ -194,21 +194,21 @@ def train(hyp, opt):
             _, loss_item, _, _ = train_step(imgs, labels, ns, True)
         else:
             _, loss_item, grads, grads_finite = train_step(imgs, labels, ns, False)
-            accumulate_finite = ops.logical_and(accumulate_finite, grads_finite)
-            accumulate_cur_step += 1
-            if accumulate_grads:
-                assert len(accumulate_grads) == len(grads)
-                for gi in range(len(grads)):
-                    accumulate_grads[gi] += grads[gi]
+            if grads_finite:
+                accumulate_cur_step += 1
+                if accumulate_grads:
+                    assert len(accumulate_grads) == len(grads)
+                    for gi in range(len(grads)):
+                        accumulate_grads[gi] += grads[gi]
 
-            else:
-                accumulate_grads = list(grads)
+                else:
+                    accumulate_grads = list(grads)
 
-            if accumulate_cur_step % accumulate == 0:
-                optimizer(tuple(accumulate_grads))
-                _ = loss_scaler.adjust(accumulate_finite)
-                accumulate_grads = None
-                accumulate_cur_step = 0
+                if accumulate_cur_step % accumulate == 0:
+                    optimizer(tuple(accumulate_grads))
+                    _ = loss_scaler.adjust(accumulate_finite)
+                    accumulate_grads = None
+                    accumulate_cur_step = 0
         _p_train_size = ns if ns else imgs.shape[2:]
         print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
               f"fp/bp time cost: {(time.time() - s_train_time) * 1000:.2f} ms")

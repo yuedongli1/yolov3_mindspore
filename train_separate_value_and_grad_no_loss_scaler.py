@@ -158,7 +158,6 @@ def train(hyp, opt):
     # Start training
     data_loader = dataloader.create_dict_iterator(output_numpy=True, num_epochs=300)
     accumulate_grads = None
-    accumulate_finite = Tensor(True, ms.bool_)
     model.set_train(True)
     optimizer.set_train(True)
     accumulate_cur_step = 0
@@ -191,20 +190,20 @@ def train(hyp, opt):
             _, loss_item, _, _ = train_step(imgs, labels, ns, True)
         else:
             _, loss_item, grads, grads_finite = train_step(imgs, labels, ns, False)
-            accumulate_finite = ops.logical_and(accumulate_finite, grads_finite)
-            accumulate_cur_step += 1
-            if accumulate_grads:
-                assert len(accumulate_grads) == len(grads)
-                for gi in range(len(grads)):
-                    accumulate_grads[gi] += grads[gi]
+            if grads_finite:
+                accumulate_cur_step += 1
+                if accumulate_grads:
+                    assert len(accumulate_grads) == len(grads)
+                    for gi in range(len(grads)):
+                        accumulate_grads[gi] += grads[gi]
 
-            else:
-                accumulate_grads = list(grads)
+                else:
+                    accumulate_grads = list(grads)
 
-            if accumulate_cur_step % accumulate == 0:
-                optimizer(tuple(accumulate_grads))
-                accumulate_grads = None
-                accumulate_cur_step = 0
+                if accumulate_cur_step % accumulate == 0:
+                    optimizer(tuple(accumulate_grads))
+                    accumulate_grads = None
+                    accumulate_cur_step = 0
         _p_train_size = ns if ns else imgs.shape[2:]
         print(f"Epoch {epochs}/{cur_epoch}, Step {per_epoch_size}/{cur_step}, size {_p_train_size}, "
               f"fp/bp time cost: {(time.time() - s_train_time) * 1000:.2f} ms")

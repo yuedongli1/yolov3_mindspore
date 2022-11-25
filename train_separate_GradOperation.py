@@ -154,8 +154,7 @@ def train(hyp, opt):
             if grads_finite:
                 loss = ops.depend(loss, optimizer(grads))
             else:
-                loss = ops.depend(loss, optimizer(grads))
-                print("overflow, still update")
+                print("overflow, drop")
         return loss, loss_items, grads, grads_finite
 
 
