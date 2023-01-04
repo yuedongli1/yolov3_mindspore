@@ -35,8 +35,8 @@ def train(hyp, opt):
 
     if opt.enable_modelarts:
         from utils.modelarts import sync_data
-        os.makedirs(opt.data_dir, exist_ok=True)
-        sync_data(opt.data_url, opt.data_dir)
+        os.makedirs(opt.data_dir_modelarts, exist_ok=True)
+        sync_data(opt.data_url, opt.data_dir_modelarts)
 
     with open(opt.data, 'rb') as f:
         data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # data dict
@@ -331,9 +331,9 @@ def create_train_static_shape_fn_gradoperation(model, optimizer, loss_scaler, gr
 if __name__ == '__main__':
     opt = get_args_train()
     if opt.enable_modelarts:
-        opt.cfg = os.path.join(opt.train_url, opt.cfg)
-        opt.data = os.path.join(opt.train_url, opt.data)
-        opt.hyp = os.path.join(opt.train_url, opt.hyp)
+        opt.cfg = os.path.join(opt.file_url, opt.cfg)
+        opt.data = os.path.join(opt.file_url, opt.data)
+        opt.hyp = os.path.join(opt.file_url, opt.hyp)
     opt.data, opt.cfg, opt.hyp = check_file(opt.data), check_file(opt.cfg), check_file(opt.hyp)  # check files
     assert len(opt.cfg) or len(opt.weights), 'either --cfg or --weights must be specified'
     opt.img_size.extend([opt.img_size[-1]] * (2 - len(opt.img_size)))  # extend to 2 sizes (train, test)

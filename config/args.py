@@ -41,6 +41,8 @@ def get_args_train():
 
     # args for ModelArts
     parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')
+    parser.add_argument('--file_url', type=str, default='/home/work/user-job-dir/V0001',
+                        help='ModelArts: obs path to files')
     parser.add_argument('--data_url', type=str, default='/cache/data/', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--train_url', type=str, default='/home/work/user-job-dir/V0001', help='ModelArts: obs path to dataset folder')
     parser.add_argument('--data_dir_modelarts', type=str, default='/cache/data/', help='ModelArts: obs path to dataset folder')
