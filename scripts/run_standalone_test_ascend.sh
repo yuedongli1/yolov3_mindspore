@@ -22,9 +22,9 @@ get_real_path(){
 
 if [ $# == 2 ]
 then
-  CONFIG_PATH=$"./yolov3.yaml"
-  DATA_PATH=$"./coco.yaml"
-  HYP_PATH=$"./hyp.scratch.yaml"
+  CONFIG_PATH=$"./config/network/yolov3.yaml"
+  DATA_PATH=$"./config/data/coco.yaml"
+  HYP_PATH=$"./config/data/hyp.scratch.yaml"
 fi
 
 if [ $# == 5 ]
@@ -43,13 +43,13 @@ export DEVICE_NUM=1
 export RANK_SIZE=1
 rm -rf ./test_standalone$2
 mkdir ./test_standalone$2
-cp ./*.py ./test_standalone$2
-cp ./coco.yaml ./test_standalone$2
-cp ./yolov3.yaml ./test_standalone$2
-cp ./hyp.scratch.yaml ./test_standalone$2
-cp ./EMA_yolov3_300.ckpt ./test_standalone$2
+cp ../*.py ./test_standalone$2
+cp -r ../config ./test_standalone$2
+cp -r ../network ./test_standalone$2
+cp -r ../utils ./test_standalone$2
 mkdir ./test_standalone$2/scripts
-cp -r ./*.sh ./test_standalone$2/scripts/
+cp -r ../scripts/*.sh ./test_standalone$2/scripts/
+cp ../EMA_yolov3_300.ckpt ./test_standalone$2
 cd ./test_standalone$2 || exit
 env > env.log
 python val.py \
@@ -58,8 +58,8 @@ python val.py \
   --data=$DATA_PATH \
   --hyp=$HYP_PATH \
   --device_target=Ascend \
-  --img-size=640 \
+  --img_size=640 \
   --conf=0.001 \
   --iou=0.6 \
-  --batch-size=32 > log.txt 2>&1 &
+  --batch_size=32 > log.txt 2>&1 &
 cd ..

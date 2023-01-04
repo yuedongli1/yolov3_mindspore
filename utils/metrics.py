@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
 
-from general import xywh2xyxy, box_iou
+from .general import xywh2xyxy, box_iou
 
 
 class ConfusionMatrix:

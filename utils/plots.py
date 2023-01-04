@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 from PIL import Image
 
-from general import xywh2xyxy, xyxy2xywh
+from .general import xywh2xyxy, xyxy2xywh
 
 
 def output_to_target(output):
