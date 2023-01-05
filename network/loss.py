@@ -75,9 +75,6 @@ class FocalLoss(nn.Cell):
     def construct(self, pred, true, mask=None):
         ori_dtype = pred.dtype
         loss = self.loss_fcn(pred.astype(ms.float32), true.astype(ms.float32))
-        # p_t = torch.exp(-loss)
-        # loss *= self.alpha * (1.000001 - p_t) ** self.gamma  # non-zero power for gradient stability
-
         # TF implementation https://github.com/tensorflow/addons/blob/v0.7.1/tensorflow_addons/losses/focal_loss.py
 
         pred_prob = ops.Sigmoid()(pred) # prob from logits

@@ -309,7 +309,7 @@ def compute_ap(recall, precision, v5_metric=False):
     # Append sentinel values to beginning and end
     if v5_metric:  # New YOLOv5 metric, same as MMDetection and Detectron2 repositories
         mrec = np.concatenate(([0.], recall, [1.0]))
-    else:  # Old YOLOv5 metric, i.e. default YOLOv7 metric
+    else:  # Old YOLOv5 metric
         mrec = np.concatenate(([0.], recall, [recall[-1] + 0.01]))
     mpre = np.concatenate(([1.], precision, [0.]))
 

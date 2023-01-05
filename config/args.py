@@ -36,8 +36,7 @@ def get_args_train():
     parser.add_argument('--quad', type=ast.literal_eval, default=False, help='quad dataloader')
     parser.add_argument('--linear_lr', type=ast.literal_eval, default=False, help='linear LR')
     parser.add_argument('--label_smoothing', type=float, default=0.0, help='Label smoothing epsilon')
-    parser.add_argument('--freeze', nargs='+', type=int, default=[0],
-                        help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
+    parser.add_argument('--freeze', nargs='+', type=int, default=[0], help='Freeze layers')
 
     # args for ModelArts
     parser.add_argument('--enable_modelarts', type=ast.literal_eval, default=False, help='enable modelarts')

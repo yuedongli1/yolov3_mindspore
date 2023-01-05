@@ -327,7 +327,7 @@ if __name__ == '__main__':
              save_json=False, plots=False, half_precision=False, v5_metric=opt.v5_metric)
 
     elif opt.task == 'study':  # run over a range of settings and save/plot
-        # python test.py --task study --data coco.yaml --iou 0.65 --weights yolov7.ckpt
+        # python test.py --task study --data coco.yaml --iou 0.65 --weights yolov3.ckpt
         x = list(range(256, 1536 + 128, 128))  # x axis (image sizes)
         f = f'study_{Path(opt.data).stem}_{Path(opt.weights).stem}.txt'  # filename to save to
         y = []  # y axis

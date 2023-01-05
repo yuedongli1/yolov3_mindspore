@@ -54,12 +54,12 @@ def _get_stride_max(stride):
 
 
 class Model(nn.Cell):
-    def __init__(self, cfg='D:/yolov3_mindspore/config/network/yolov3.yaml', ch=3, nc=None, anchors=None, sync_bn=False):  # model, input channels, number of classes
+    def __init__(self, cfg='yolov3.yaml', ch=3, nc=None, anchors=None, sync_bn=False):  # model, input channels, number of classes
         super(Model, self).__init__()
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
-            import yaml  # for torch hub
+            import yaml
             self.yaml_file = Path(cfg).name
             with open(cfg) as f:
                 self.yaml = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
@@ -74,7 +74,6 @@ class Model(nn.Cell):
             self.yaml['anchors'] = round(anchors)  # override yaml value
         self.model, self.save, self.layers_param = parse_model(deepcopy(self.yaml), ch=[ch])
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
-        # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
@@ -85,11 +84,8 @@ class Model(nn.Cell):
             check_anchor_order(m)
             m.anchors /= m.stride.view(-1, 1, 1)
             self.stride = m.stride
+            self.stride_np = np.array(self.yaml['stride'])
             self._initialize_biases()  # only run once
-            # print('Strides: %s' % m.stride.tolist())
-
-        # Init weights, biases
-        # initialize_weights(self)
 
     def construct(self, x, augment=False):
         if augment:
@@ -99,9 +95,7 @@ class Model(nn.Cell):
             y = ()  # outputs
             for si, fi in zip(s, f):
                 xi = scale_img(ops.ReverseV2(fi)(x) if fi else x, si, gs=_get_stride_max(self.stride_np))
-                # xi = scale_img(x.flip(fi) if fi else x, si, gs=int(self.stride.max()))
                 yi = self.forward_once(xi)[0]  # forward
-                # cv2.imwrite(f'img_{si}.jpg', 255 * xi[0].cpu().numpy().transpose((1, 2, 0))[:, :, ::-1])  # save
                 yi[..., :4] /= si  # de-scale
                 if fi == 2:
                     yi[..., 1] = img_size[0] - yi[..., 1]  # de-flip ud

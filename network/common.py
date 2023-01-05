@@ -22,8 +22,6 @@ def _calculate_fan_in_and_fan_out(shape):
     num_output_fmaps = shape[0]
     receptive_field_size = 1
     if dimensions > 2:
-        # math.prod is not always available, accumulate the product manually
-        # we could use functools.reduce but that is not supported by TorchScript
         for s in shape[2:]:
             receptive_field_size *= s
     fan_in = num_input_fmaps * receptive_field_size
