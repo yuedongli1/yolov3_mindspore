@@ -341,6 +341,7 @@ if __name__ == '__main__':
     opt.save_dir = increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok | opt.evolve)  # increment run
 
     context.set_context(mode=context.GRAPH_MODE, device_target=opt.device_target)
+    # context.set_context(mode=context.PYNATIVE_MODE, device_target=opt.device_target, pynative_synchronize=True)
     if opt.device_target == "Ascend":
         device_id = int(os.getenv('DEVICE_ID', 0))
         context.set_context(device_id=device_id)

@@ -69,7 +69,7 @@ class Concat(nn.Cell):
 
 class Conv(nn.Cell):
     # Standard convolution
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=nn.SiLU()):  # ch_in, ch_out, kernel, stride, padding, groups
         super(Conv, self).__init__()
         self.conv = nn.Conv2d(c1, c2, k, s,
                               pad_mode="pad",
@@ -88,7 +88,7 @@ class Conv(nn.Cell):
 
 class Bottleneck(nn.Cell):
     # Standard bottleneck
-    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5, act=True):  # ch_in, ch_out, shortcut, groups, expansion
+    def __init__(self, c1, c2, shortcut=True, g=1, e=0.5, act=nn.SiLU()):  # ch_in, ch_out, shortcut, groups, expansion
         super().__init__()
         c_ = int(c2 * e)  # hidden channels
         self.cv1 = Conv(c1, c_, 1, 1, act=act)
@@ -97,6 +97,36 @@ class Bottleneck(nn.Cell):
 
     def construct(self, x):
         return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+
+
+class PoolWithPad(nn.Cell):
+    def __init__(self, kernel_size, stride, padding):
+        super(PoolWithPad, self).__init__()
+        assert isinstance(padding, int)
+        self.pad = nn.Pad(paddings=((0, 0), (0, 0), (padding, padding), (padding, padding)))
+        self.pool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride)
+
+    def construct(self, x):
+        x = self.pad(x)
+        x = self.pool(x)
+        return x
+
+
+class SPP(nn.Cell):
+    # Spatial Pyramid Pooling (SPP) layer https://arxiv.org/abs/1406.4729
+    def __init__(self, c1, c2, k=(5, 9, 13), e=0.5, act=nn.SiLU()):
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1, act=act)
+        self.cv2 = Conv(c_ * (len(k) + 1), c2, 1, 1, act=act)
+        self.m = nn.CellList([PoolWithPad(kernel_size=x, stride=1, padding=x // 2) for x in k])
+
+    def construct(self, x):
+        x = self.cv1(x)
+        m_tuple = (x,)
+        for i in range(len(self.m)):
+            m_tuple += (self.m[i](x),)
+        return self.cv2(ops.Concat(axis=1)(m_tuple))
 
 
 class Detect(nn.Cell):
@@ -163,7 +193,7 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
                 pass
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in (nn.Conv2d, Conv, Bottleneck):
+        if m in (nn.Conv2d, Conv, Bottleneck, SPP):
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
                 c2 = math.ceil(c2 * gw / 8) * 8
