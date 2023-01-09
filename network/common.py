@@ -207,6 +207,8 @@ def parse_model(d, ch, sync_bn=False):  # model_dict, input_channels(3)
             args.append([ch[x] for x in f])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(f)
+        elif m in (nn.ZeroPad2d, ):
+            args[0] = tuple(args[0])
         else:
             c2 = ch[f]
 
